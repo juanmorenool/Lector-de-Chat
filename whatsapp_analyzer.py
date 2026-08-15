@@ -125,10 +125,10 @@ def find_love_expressions(df):
 def find_palabra_del_dia(df):
     """Extrae todas las 'palabra del día' y sus definiciones"""
     palabras = []
-    # Patrones comunes
+    # Patrones comunes - CORREGIDO: comillas ASCII rectas
     patterns = [
         r'(?:la\s+)?palabra\s+(?:del\s+)?día\s+(?:es|de)\s+(\w+)[^\w]*(?:,\s*)?que\s+es\s+([^\.]+)',
-        r'(?:la\s+)?palabra\s+(?:del\s+)?día\s+(?:es|de)\s+["']?(\w+)["']?[^\w]*(?:,\s*)?que\s+es\s+([^\.]+)',
+        r"(?:la\s+)?palabra\s+(?:del\s+)?día\s+(?:es|de)\s+[\"']?(\w+)[\"']?[^\w]*(?:,\s*)?que\s+es\s+([^\.]+)",
         r'(?:mi|la)\s+palabra\s+(?:del\s+)?día\s+(?:es|fue)\s+(\w+)[^\w]*(?:,\s*)?que\s+es\s+([^\.]+)',
     ]
 
