@@ -248,55 +248,50 @@ def is_valid_love_expression(msg_lower, base_phrase, intensifiers):
     if base_phrase not in msg_lower:
         return False
 
+    emoji_chars = '❤️💕💖💗💓💝💘🥰😍🫶✨'
+
     # Encontrar todas las ocurrencias
     for match in re.finditer(rf'\b{re.escape(base_phrase)}\b', msg_lower):
         end_pos = match.end()
-        rest = msg_lower[end_pos:].strip()
+        rest = msg_lower[end_pos:]
+        rest_clean = rest.strip()
 
         # Si no hay nada más o empieza con puntuación → válido
-        if not rest or rest[0] in '.,;:!?¡¿':
+        if not rest_clean:
+            return True
+
+        # Permitir solo puntuación/emojis después de la frase
+        only_symbols = re.sub(rf'[\s\.,;:!?\-¡¿{emoji_chars}]', '', rest_clean)
+        if not only_symbols:
             return True
 
         # Obtener la siguiente palabra
-        words_after = rest.split()
+        words_after = rest_clean.split()
         if not words_after:
             return True
 
         next_word = re.sub(r'[^\wáéíóúñ]', '', words_after[0].lower())
+        trailing_text = rest_clean[len(words_after[0]):].strip()
+        trailing_only_symbols = re.sub(rf'[\s\.,;:!?\-¡¿{emoji_chars}]', '', trailing_text)
 
-        # Si la siguiente palabra es un intensificador → válido
-        if next_word in intensifiers:
-            return True
-
-        # Si después viene un emoji o puntuación
-        if rest[0] in '❤️💕💖💗💓💝💘🥰😍🫶✨':
+        # Si la siguiente palabra es un intensificador y no hay más palabras reales → válido
+        if next_word in intensifiers and not trailing_only_symbols:
             return True
 
     return False
 
+@st.cache_data
 def find_love_expressions(df):
     """Encuentra expresiones de amor válidas"""
 
-    # Intensificadores permitidos para "te quiero"
+    # Intensificadores permitidos para "te quiero" (estricto)
     tq_intensifiers = [
-        'mucho', 'muchísimo', 'demasiado', 'más', 'también', 'siempre',
-        'infinito', 'con', 'para', 'hasta', 'demás', 'un', 'bastante',
-        'profundamente', 'enormemente', 'mi', 'corazón', 'bebe', 'bebé',
-        'princesa', 'princeso', 'cielo', 'amor', 'hermosa', 'hermoso',
-        'guapa', 'guapo', 'linda', 'lindo', 'preciosa', 'precioso',
-        'bonita', 'bonito', 'vida', 'alma', 'reina', 'rey', 'niña',
-        'niño', 'todo', 'toda', 'muchoooo', 'muchooooo', 'demasiaaado',
-        'demasiaaaado', 'demasiao', 'musho', 'musho', 'muchisimo',
-        'muchísimo', 'muchisimo', 'demasiadoo', 'demasiaado'
+        'mucho', 'muchisimo', 'muchísimo', 'demasiado', 'demasiaado', 'demasiadoo'
     ]
 
-    # Intensificadores permitidos para "te amo"
+    # Intensificadores permitidos para "te amo" (estricto)
     ta_intensifiers = [
-        'mucho', 'muchísimo', 'demasiado', 'más', 'también', 'siempre',
-        'infinito', 'con', 'para', 'hasta', 'mi', 'corazón', 'bebe', 'bebé',
-        'princesa', 'princeso', 'cielo', 'amor', 'hermosa', 'hermoso',
-        'vida', 'alma', 'reina', 'rey', 'todo', 'toda', 'muchoooo',
-        'demasiaaado', 'muchisimo', 'muchísimo', 'demasiadoo'
+        'mucho', 'muchisimo', 'muchísimo', 'demasiado', 'demasiaado', 'demasiadoo'
     ]
 
     results = {
@@ -356,12 +351,13 @@ def find_love_expressions(df):
 
     return results
 
+@st.cache_data
 def find_palabra_del_dia(df):
     """Extrae todas las 'palabra del día' y sus definiciones"""
     palabras = []
     patterns = [
         r'(?:la\s+)?palabra\s+(?:del\s+)?día\s+(?:es|de)\s+(\w+)[^\w]*(?:,\s*)?que\s+es\s+([^\.]+)',
-        r"(?:la\s+)?palabra\s+(?:del\s+)?día\s+(?:es|de)\s+["']?(\w+)["']?[^\w]*(?:,\s*)?que\s+es\s+([^\.]+)",
+        r'(?:la\s+)?palabra\s+(?:del\s+)?día\s+(?:es|de)\s+["\']?(\w+)["\']?[^\w]*(?:,\s*)?que\s+es\s+([^\.]+)',
         r'(?:mi|la)\s+palabra\s+(?:del\s+)?día\s+(?:es|fue)\s+(\w+)[^\w]*(?:,\s*)?que\s+es\s+([^\.]+)',
     ]
 
@@ -433,26 +429,41 @@ def plot_love_by_sender(items, title, color_map):
     )
     return fig
 
-def plot_timeline(items, title, color):
+def plot_timeline(items, title, color, granularity='D'):
     """Timeline interactivo con Plotly"""
     if not items:
         return None
 
     df_plot = pd.DataFrame(items)
-    df_plot['date_only'] = df_plot['date'].dt.date
-    timeline = df_plot.groupby('date_only').size().reset_index(name='count')
-    timeline['date_only'] = pd.to_datetime(timeline['date_only'])
+
+    if granularity == 'H':
+        df_plot['period'] = df_plot['datetime'].dt.floor('h')
+        x_title = 'Fecha y hora'
+        y_title = 'Expresiones por hora'
+        hover_template = '<b>%{x|%d/%m/%Y %H:00}</b><br>Expresiones: %{y}<extra></extra>'
+    elif granularity == 'M':
+        df_plot['period'] = df_plot['datetime'].dt.to_period('M').dt.to_timestamp()
+        x_title = 'Mes'
+        y_title = 'Expresiones por mes'
+        hover_template = '<b>%{x|%m/%Y}</b><br>Expresiones: %{y}<extra></extra>'
+    else:
+        df_plot['period'] = df_plot['datetime'].dt.floor('D')
+        x_title = 'Fecha'
+        y_title = 'Expresiones por día'
+        hover_template = '<b>%{x|%d/%m/%Y}</b><br>Expresiones: %{y}<extra></extra>'
+
+    timeline = df_plot.groupby('period').size().reset_index(name='count').sort_values('period')
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=timeline['date_only'],
+        x=timeline['period'],
         y=timeline['count'],
         mode='lines+markers',
         line=dict(color=color, width=3),
         marker=dict(size=8, color=color, line=dict(width=2, color='white')),
         fill='tozeroy',
         fillcolor=f'rgba(255, 107, 107, 0.15)',
-        hovertemplate='<b>%{x|%d/%m/%Y}</b><br>Expresiones: %{y}<extra></extra>'
+        hovertemplate=hover_template
     ))
 
     fig.update_layout(
@@ -463,8 +474,8 @@ def plot_timeline(items, title, color):
         font=dict(family='Poppins', size=13, color=COLORS['text']),
         title_font_size=18,
         title_font_color=COLORS['primary'],
-        xaxis_title='Fecha',
-        yaxis_title='Expresiones por día',
+        xaxis_title=x_title,
+        yaxis_title=y_title,
         hovermode='x unified',
         margin=dict(t=60, b=40)
     )
@@ -625,18 +636,16 @@ if uploaded_file:
             st.divider()
             st.subheader("🔍 Filtros Interactivos")
 
-            col_f1, col_f2, col_f3 = st.columns(3)
+            col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+
+            available_months = sorted(df['year_month'].unique())
+            month_options = ['Todos'] + [datetime.strptime(m, '%Y-%m').strftime('%B %Y') for m in available_months]
+            selected_month = None
 
             with col_f1:
-                available_months = sorted(df['year_month'].unique())
-                month_options = ['Todos'] + [datetime.strptime(m, '%Y-%m').strftime('%B %Y') for m in available_months]
                 selected_month_label = st.selectbox("📅 Filtrar por mes", month_options)
                 if selected_month_label != 'Todos':
                     selected_month = available_months[month_options.index(selected_month_label) - 1]
-                    df_filtered = df[df['year_month'] == selected_month].copy()
-                else:
-                    df_filtered = df.copy()
-                    selected_month = None
 
             with col_f2:
                 min_date = df['date'].min().date()
@@ -647,11 +656,6 @@ if uploaded_file:
                     min_value=min_date,
                     max_value=max_date
                 )
-                if len(date_range) == 2:
-                    df_filtered = df_filtered[
-                        (df_filtered['date_only'] >= date_range[0]) &
-                        (df_filtered['date_only'] <= date_range[1])
-                    ].copy()
 
             with col_f3:
                 hour_range = st.slider(
@@ -660,10 +664,41 @@ if uploaded_file:
                     max_value=23,
                     value=(0, 23)
                 )
-                df_filtered = df_filtered[
-                    (df_filtered['hour'] >= hour_range[0]) &
-                    (df_filtered['hour'] <= hour_range[1])
-                ].copy()
+
+            with col_f4:
+                days_map = {
+                    'Monday': 'Lunes',
+                    'Tuesday': 'Martes',
+                    'Wednesday': 'Miércoles',
+                    'Thursday': 'Jueves',
+                    'Friday': 'Viernes',
+                    'Saturday': 'Sábado',
+                    'Sunday': 'Domingo'
+                }
+                available_days = [d for d in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] if d in df['day_of_week'].unique()]
+                selected_days = st.multiselect(
+                    "🗓️ Filtrar por día",
+                    options=available_days,
+                    default=available_days,
+                    format_func=lambda x: days_map.get(x, x)
+                )
+
+            filter_mask = pd.Series(True, index=df.index)
+            if selected_month:
+                filter_mask &= (df['year_month'] == selected_month)
+            if len(date_range) == 2:
+                filter_mask &= (df['date_only'] >= date_range[0]) & (df['date_only'] <= date_range[1])
+            filter_mask &= (df['hour'] >= hour_range[0]) & (df['hour'] <= hour_range[1])
+            if selected_days:
+                filter_mask &= df['day_of_week'].isin(selected_days)
+            else:
+                filter_mask &= False
+
+            df_filtered = df[filter_mask].copy()
+
+            if df_filtered.empty:
+                st.warning("⚠️ No hay mensajes con esos filtros. Ajusta mes, día, fecha u hora.")
+                st.stop()
 
             # Procesar datos filtrados
             love_expr = find_love_expressions(df_filtered)
@@ -684,16 +719,16 @@ if uploaded_file:
                 """, unsafe_allow_html=True)
 
             with col2:
-                fecha_inicio = df_filtered['date'].min().strftime('%d/%m/%Y')
-                fecha_fin = df_filtered['date'].max().strftime('%d/%m/%Y')
-                dias_totales = (df_filtered['date'].max() - df_filtered['date'].min()).days + 1
+                fecha_inicio_dt = df_filtered['date'].min()
+                fecha_fin_dt = df_filtered['date'].max()
+                fecha_inicio = fecha_inicio_dt.strftime('%d/%m/%Y')
+                fecha_fin = fecha_fin_dt.strftime('%d/%m/%Y')
+                dias_totales = (fecha_fin_dt - fecha_inicio_dt).days + 1
                 st.markdown(f"""
                 <div class="period-card">
                     <div class="metric-label">📅 PERÍODO</div>
-                    <div class="metric-value" style="font-size: 28px;">{fecha_inicio}</div>
-                    <div style="font-size: 20px; margin: 5px 0;">⬇️</div>
-                    <div class="metric-value" style="font-size: 28px;">{fecha_fin}</div>
-                    <div style="font-size: 14px; margin-top: 8px; opacity: 0.9;">{dias_totales} días juntos 💕</div>
+                    <div class="metric-value" style="font-size: 22px; line-height: 1.25;">{fecha_inicio} → {fecha_fin}</div>
+                    <div style="font-size: 14px; margin-top: 10px; opacity: 0.95;">{dias_totales} días juntos 💕</div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -794,15 +829,34 @@ if uploaded_file:
                         st.info("No se encontraron 'te amo' en el período seleccionado")
 
             with tab2:
+                granularity_label = st.selectbox(
+                    "🕒 Precisión del timeline",
+                    ["Hora", "Día", "Mes"],
+                    index=1,
+                    key="timeline_granularity"
+                )
+                granularity_map = {"Hora": "H", "Día": "D", "Mes": "M"}
+                selected_granularity = granularity_map[granularity_label]
+
                 col1, col2 = st.columns(2)
 
                 with col1:
-                    fig = plot_timeline(love_expr['te_quiero'], "💘 Timeline de 'Te Quiero'", COLORS['primary'])
+                    fig = plot_timeline(
+                        love_expr['te_quiero'],
+                        "💘 Timeline de 'Te Quiero'",
+                        COLORS['primary'],
+                        selected_granularity
+                    )
                     if fig:
                         st.plotly_chart(fig, use_container_width=True)
 
                 with col2:
-                    fig = plot_timeline(love_expr['te_amo'], "💖 Timeline de 'Te Amo'", COLORS['rose'])
+                    fig = plot_timeline(
+                        love_expr['te_amo'],
+                        "💖 Timeline de 'Te Amo'",
+                        COLORS['rose'],
+                        selected_granularity
+                    )
                     if fig:
                         st.plotly_chart(fig, use_container_width=True)
 
@@ -814,12 +868,16 @@ if uploaded_file:
 
                     if love_expr['te_quiero']:
                         tq_df = pd.DataFrame(love_expr['te_quiero'])
-                        tq_df['date_only'] = tq_df['date'].dt.date
-                        tq_timeline = tq_df.groupby('date_only').size().reset_index(name='count')
-                        tq_timeline['date_only'] = pd.to_datetime(tq_timeline['date_only'])
+                        if selected_granularity == 'H':
+                            tq_df['period'] = tq_df['datetime'].dt.floor('h')
+                        elif selected_granularity == 'M':
+                            tq_df['period'] = tq_df['datetime'].dt.to_period('M').dt.to_timestamp()
+                        else:
+                            tq_df['period'] = tq_df['datetime'].dt.floor('D')
+                        tq_timeline = tq_df.groupby('period').size().reset_index(name='count').sort_values('period')
 
                         fig.add_trace(go.Scatter(
-                            x=tq_timeline['date_only'],
+                            x=tq_timeline['period'],
                             y=tq_timeline['count'],
                             mode='lines+markers',
                             name='Te Quiero 💘',
@@ -831,12 +889,16 @@ if uploaded_file:
 
                     if love_expr['te_amo']:
                         ta_df = pd.DataFrame(love_expr['te_amo'])
-                        ta_df['date_only'] = ta_df['date'].dt.date
-                        ta_timeline = ta_df.groupby('date_only').size().reset_index(name='count')
-                        ta_timeline['date_only'] = pd.to_datetime(ta_timeline['date_only'])
+                        if selected_granularity == 'H':
+                            ta_df['period'] = ta_df['datetime'].dt.floor('h')
+                        elif selected_granularity == 'M':
+                            ta_df['period'] = ta_df['datetime'].dt.to_period('M').dt.to_timestamp()
+                        else:
+                            ta_df['period'] = ta_df['datetime'].dt.floor('D')
+                        ta_timeline = ta_df.groupby('period').size().reset_index(name='count').sort_values('period')
 
                         fig.add_trace(go.Scatter(
-                            x=ta_timeline['date_only'],
+                            x=ta_timeline['period'],
                             y=ta_timeline['count'],
                             mode='lines+markers',
                             name='Te Amo 💖',
@@ -854,7 +916,7 @@ if uploaded_file:
                         title_font_size=16,
                         title_font_color=COLORS['primary'],
                         xaxis_title='Fecha',
-                        yaxis_title='Expresiones por día',
+                        yaxis_title='Expresiones',
                         hovermode='x unified',
                         legend=dict(
                             orientation='h',
