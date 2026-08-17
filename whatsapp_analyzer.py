@@ -282,21 +282,45 @@ def is_valid_love_expression(msg_lower, base_phrase, intensifiers):
 
 @st.cache_data
 def find_love_expressions(df):
-    """Encuentra expresiones de amor válidas"""
+    """Encuentra expresiones de amor válidas: versiones puras y variantes similares"""
 
-    # Intensificadores permitidos para "te quiero" (estricto)
-    tq_intensifiers = [
+    # Intensificadores/complementos permitidos para "te quiero" (versión pura - muy estricto)
+    tq_pure_intensifiers = [
         'mucho', 'muchisimo', 'muchísimo', 'demasiado', 'demasiaado', 'demasiadoo'
     ]
 
-    # Intensificadores permitidos para "te amo" (estricto)
-    ta_intensifiers = [
+    # Intensificadores/complementos permitidos para "te amo" (versión pura - muy estricto)
+    ta_pure_intensifiers = [
         'mucho', 'muchisimo', 'muchísimo', 'demasiado', 'demasiaado', 'demasiadoo'
+    ]
+
+    # Variantes/complementos para "te quiero" (más flexibles)
+    tq_variants = [
+        'un montón', 'un monton', 'mil', 'un millón', 'un millon',
+        'más y más', 'mas y mas', 'cada día', 'cada dia', 'cada día más',
+        'sin final', 'infinito', 'para siempre', 'por siempre',
+        'bastante', 'enormemente', 'de verdad', 'de todo corazón', 'de todo corazon',
+        'con todo mi corazón', 'con todo mi corazon', 'un buen', 'un montonal',
+        'como no tienes idea', 'de todo el alma', 'del alma', 'a morir',
+        'con locura', 'a rabiar', 'profundamente', 'con toda mi alma', 'a rabiar'
+    ]
+
+    # Variantes/complementos para "te amo" (más flexibles)
+    ta_variants = [
+        'un montón', 'un monton', 'mil', 'un millón', 'un millon',
+        'más y más', 'mas y mas', 'cada día', 'cada dia', 'cada día más',
+        'sin final', 'infinito', 'para siempre', 'por siempre',
+        'bastante', 'enormemente', 'de verdad', 'de todo corazón', 'de todo corazon',
+        'con todo mi corazón', 'con todo mi corazon', 'un buen', 'un montonal',
+        'como no tienes idea', 'de todo el alma', 'del alma', 'a morir',
+        'con locura', 'a rabiar', 'profundamente', 'con toda mi alma'
     ]
 
     results = {
         'te_quiero': [],
+        'te_quiero_variantes': [],
         'te_amo': [],
+        'te_amo_variantes': [],
         'me_encantas': [],
         'amor': []
     }
@@ -305,29 +329,66 @@ def find_love_expressions(df):
         msg = row['message']
         msg_lower = msg.lower()
 
-        # Te quiero (solo frases válidas, no "te quiero besar")
-        if is_valid_love_expression(msg_lower, 'te quiero', tq_intensifiers):
+        # ========== TE QUIERO ==========
+        # Versión pura (solo base + puntuación/emojis o intensificadores estrictos)
+        if is_valid_love_expression(msg_lower, 'te quiero', tq_pure_intensifiers):
             results['te_quiero'].append({
                 'datetime': row['datetime'],
                 'date': row['date'],
                 'time': row['time'],
                 'sender': row['sender'],
                 'message': row['message'],
-                'idx': idx
+                'idx': idx,
+                'type': 'pure'
             })
+        # Variantes (patrones más flexibles)
+        else:
+            for variant in tq_variants:
+                # Patrón: "te quiero" + variante con flexibilidad en puntuación/espacios
+                pattern = rf'te quiero\b[^\w]*(?:{re.escape(variant)})'
+                if re.search(pattern, msg_lower):
+                    results['te_quiero_variantes'].append({
+                        'datetime': row['datetime'],
+                        'date': row['date'],
+                        'time': row['time'],
+                        'sender': row['sender'],
+                        'message': row['message'],
+                        'idx': idx,
+                        'type': 'variant',
+                        'variant_detected': variant
+                    })
+                    break
 
-        # Te amo (solo frases válidas)
-        if is_valid_love_expression(msg_lower, 'te amo', ta_intensifiers):
+        # ========== TE AMO ==========
+        # Versión pura
+        if is_valid_love_expression(msg_lower, 'te amo', ta_pure_intensifiers):
             results['te_amo'].append({
                 'datetime': row['datetime'],
                 'date': row['date'],
                 'time': row['time'],
                 'sender': row['sender'],
                 'message': row['message'],
-                'idx': idx
+                'idx': idx,
+                'type': 'pure'
             })
+        # Variantes
+        else:
+            for variant in ta_variants:
+                pattern = rf'te amo\b[^\w]*(?:{re.escape(variant)})'
+                if re.search(pattern, msg_lower):
+                    results['te_amo_variantes'].append({
+                        'datetime': row['datetime'],
+                        'date': row['date'],
+                        'time': row['time'],
+                        'sender': row['sender'],
+                        'message': row['message'],
+                        'idx': idx,
+                        'type': 'variant',
+                        'variant_detected': variant
+                    })
+                    break
 
-        # Me encantas
+        # ========== ME ENCANTAS ==========
         if re.search(r'\bme encantas\b', msg_lower):
             results['me_encantas'].append({
                 'datetime': row['datetime'],
@@ -338,7 +399,7 @@ def find_love_expressions(df):
                 'idx': idx
             })
 
-        # Amor como vocativo/término cariñoso
+        # ========== AMOR (vocativo) ==========
         if re.search(r'(?:^|[^\w])amor(?:[^\w]|$)', msg_lower):
             results['amor'].append({
                 'datetime': row['datetime'],
@@ -557,13 +618,14 @@ def plot_monthly_trend(items, title):
 
 def plot_radar_love(love_expr):
     """Gráfica radar de expresiones de amor"""
+    # Combinar puros + variantes
+    total_tq = len(love_expr['te_quiero']) + len(love_expr['te_quiero_variantes'])
+    total_ta = len(love_expr['te_amo']) + len(love_expr['te_amo_variantes'])
+    total_me = len(love_expr['me_encantas'])
+    total_amor = len(love_expr['amor'])
+
     categories = ['Te Quiero', 'Te Amo', 'Me Encantas', 'Amor']
-    values = [
-        len(love_expr['te_quiero']),
-        len(love_expr['te_amo']),
-        len(love_expr['me_encantas']),
-        len(love_expr['amor'])
-    ]
+    values = [total_tq, total_ta, total_me, total_amor]
 
     fig = go.Figure()
     fig.add_trace(go.Scatterpolar(
@@ -611,7 +673,7 @@ with st.sidebar:
     3. ¡Explora los datos con los filtros! 💕
 
     **Se busca:**
-    - Te quiero / Te amo (puramente)
+    - Te quiero / Te amo (puros + variantes)
     - Me encantas
     - Palabra del día
     """)
@@ -747,49 +809,59 @@ if uploaded_file:
             st.divider()
             st.header("💕 Expresiones de Amor")
 
+            # Combinar puros + variantes para totales
+            total_tq = len(love_expr['te_quiero']) + len(love_expr['te_quiero_variantes'])
+            total_ta = len(love_expr['te_amo']) + len(love_expr['te_amo_variantes'])
+            total_me = len(love_expr['me_encantas'])
+            total_amor = len(love_expr['amor'])
+
             # Métricas de amor en tarjetas
             col1, col2, col3, col4 = st.columns(4)
 
             with col1:
-                count_tq = len(love_expr['te_quiero'])
-                first_tq = love_expr['te_quiero'][0]['date'].strftime('%d/%m/%Y') if love_expr['te_quiero'] else 'N/A'
+                first_tq = min(
+                    [x['date'].strftime('%d/%m/%Y') for x in love_expr['te_quiero'] + love_expr['te_quiero_variantes']]
+                    or ['N/A']
+                )
                 st.markdown(f"""
                 <div class="love-card">
                     <div style="font-size: 28px;">💘</div>
-                    <div class="metric-value">{count_tq}</div>
+                    <div class="metric-value">{total_tq}</div>
                     <div class="metric-label">Te Quiero</div>
                     <div style="font-size: 11px; margin-top: 6px; opacity: 0.9;">Primero: {first_tq}</div>
+                    <div style="font-size: 10px; margin-top: 3px; opacity: 0.8;">({len(love_expr['te_quiero'])} puros + {len(love_expr['te_quiero_variantes'])} variantes)</div>
                 </div>
                 """, unsafe_allow_html=True)
 
             with col2:
-                count_ta = len(love_expr['te_amo'])
-                first_ta = love_expr['te_amo'][0]['date'].strftime('%d/%m/%Y') if love_expr['te_amo'] else 'N/A'
+                first_ta = min(
+                    [x['date'].strftime('%d/%m/%Y') for x in love_expr['te_amo'] + love_expr['te_amo_variantes']]
+                    or ['N/A']
+                )
                 st.markdown(f"""
                 <div class="love-card">
                     <div style="font-size: 28px;">💖</div>
-                    <div class="metric-value">{count_ta}</div>
+                    <div class="metric-value">{total_ta}</div>
                     <div class="metric-label">Te Amo</div>
                     <div style="font-size: 11px; margin-top: 6px; opacity: 0.9;">Primero: {first_ta}</div>
+                    <div style="font-size: 10px; margin-top: 3px; opacity: 0.8;">({len(love_expr['te_amo'])} puros + {len(love_expr['te_amo_variantes'])} variantes)</div>
                 </div>
                 """, unsafe_allow_html=True)
 
             with col3:
-                count_me = len(love_expr['me_encantas'])
                 st.markdown(f"""
                 <div class="love-card">
                     <div style="font-size: 28px;">🥰</div>
-                    <div class="metric-value">{count_me}</div>
+                    <div class="metric-value">{total_me}</div>
                     <div class="metric-label">Me Encantas</div>
                 </div>
                 """, unsafe_allow_html=True)
 
             with col4:
-                count_amor = len(love_expr['amor'])
                 st.markdown(f"""
                 <div class="love-card">
                     <div style="font-size: 28px;">💝</div>
-                    <div class="metric-value">{count_amor}</div>
+                    <div class="metric-value">{total_amor}</div>
                     <div class="metric-label">Amor (general)</div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -806,10 +878,12 @@ if uploaded_file:
                 col1, col2 = st.columns(2)
 
                 with col1:
+                    # Combinar puros + variantes para gráfica
+                    tq_combined = love_expr['te_quiero'] + love_expr['te_quiero_variantes']
                     color_map_tq = {s: get_sender_color(s) for s in df_filtered['sender'].unique()}
                     fig = plot_love_by_sender(
-                        love_expr['te_quiero'],
-                        f"🍌🍊 ¿Quién dice más 'Te Quiero'?",
+                        tq_combined,
+                        f"🍌🍊 ¿Quién dice más 'Te Quiero'? (puros + variantes)",
                         color_map_tq
                     )
                     if fig:
@@ -818,9 +892,10 @@ if uploaded_file:
                         st.info("No se encontraron 'te quiero' en el período seleccionado")
 
                 with col2:
+                    ta_combined = love_expr['te_amo'] + love_expr['te_amo_variantes']
                     fig = plot_love_by_sender(
-                        love_expr['te_amo'],
-                        f"🍌🍊 ¿Quién dice más 'Te Amo'?",
+                        ta_combined,
+                        f"🍌🍊 ¿Quién dice más 'Te Amo'? (puros + variantes)",
                         color_map_tq
                     )
                     if fig:
@@ -841,9 +916,10 @@ if uploaded_file:
                 col1, col2 = st.columns(2)
 
                 with col1:
+                    tq_combined = love_expr['te_quiero'] + love_expr['te_quiero_variantes']
                     fig = plot_timeline(
-                        love_expr['te_quiero'],
-                        "💘 Timeline de 'Te Quiero'",
+                        tq_combined,
+                        "💘 Timeline de 'Te Quiero' (puros + variantes)",
                         COLORS['primary'],
                         selected_granularity
                     )
@@ -851,9 +927,10 @@ if uploaded_file:
                         st.plotly_chart(fig, use_container_width=True)
 
                 with col2:
+                    ta_combined = love_expr['te_amo'] + love_expr['te_amo_variantes']
                     fig = plot_timeline(
-                        love_expr['te_amo'],
-                        "💖 Timeline de 'Te Amo'",
+                        ta_combined,
+                        "💖 Timeline de 'Te Amo' (puros + variantes)",
                         COLORS['rose'],
                         selected_granularity
                     )
@@ -861,13 +938,14 @@ if uploaded_file:
                         st.plotly_chart(fig, use_container_width=True)
 
                 # Timeline combinado
-                if love_expr['te_quiero'] or love_expr['te_amo']:
+                if love_expr['te_quiero'] or love_expr['te_quiero_variantes'] or love_expr['te_amo'] or love_expr['te_amo_variantes']:
                     st.subheader("📊 Timeline Comparativo: Te Quiero vs Te Amo")
 
                     fig = go.Figure()
 
-                    if love_expr['te_quiero']:
-                        tq_df = pd.DataFrame(love_expr['te_quiero'])
+                    tq_combined = love_expr['te_quiero'] + love_expr['te_quiero_variantes']
+                    if tq_combined:
+                        tq_df = pd.DataFrame(tq_combined)
                         if selected_granularity == 'H':
                             tq_df['period'] = tq_df['datetime'].dt.floor('h')
                         elif selected_granularity == 'M':
@@ -887,8 +965,9 @@ if uploaded_file:
                             fillcolor='rgba(255, 107, 107, 0.1)'
                         ))
 
-                    if love_expr['te_amo']:
-                        ta_df = pd.DataFrame(love_expr['te_amo'])
+                    ta_combined = love_expr['te_amo'] + love_expr['te_amo_variantes']
+                    if ta_combined:
+                        ta_df = pd.DataFrame(ta_combined)
                         if selected_granularity == 'H':
                             ta_df['period'] = ta_df['datetime'].dt.floor('h')
                         elif selected_granularity == 'M':
@@ -932,12 +1011,14 @@ if uploaded_file:
                 col1, col2 = st.columns(2)
 
                 with col1:
-                    fig = plot_monthly_trend(love_expr['te_quiero'], "💘 'Te Quiero' por Mes")
+                    tq_combined = love_expr['te_quiero'] + love_expr['te_quiero_variantes']
+                    fig = plot_monthly_trend(tq_combined, "💘 'Te Quiero' por Mes")
                     if fig:
                         st.plotly_chart(fig, use_container_width=True)
 
                 with col2:
-                    fig = plot_monthly_trend(love_expr['te_amo'], "💖 'Te Amo' por Mes")
+                    ta_combined = love_expr['te_amo'] + love_expr['te_amo_variantes']
+                    fig = plot_monthly_trend(ta_combined, "💖 'Te Amo' por Mes")
                     if fig:
                         st.plotly_chart(fig, use_container_width=True)
 
@@ -954,31 +1035,28 @@ if uploaded_file:
                         <h4 style="color: #FF6B6B; margin-bottom: 15px;">💝 Resumen de Expresiones</h4>
                     """, unsafe_allow_html=True)
 
-                    total_expr = sum([
-                        len(love_expr['te_quiero']),
-                        len(love_expr['te_amo']),
-                        len(love_expr['me_encantas']),
-                        len(love_expr['amor'])
-                    ])
+                    total_expr = total_tq + total_ta + total_me + total_amor
 
                     st.markdown(f"""
                         <p style="font-size: 32px; font-weight: 700; color: #FF6B6B; margin: 0;">{total_expr}</p>
                         <p style="color: #666; margin-bottom: 20px;">expresiones totales</p>
 
-                        <p>💘 Te Quiero: <b>{len(love_expr['te_quiero'])}</b></p>
-                        <p>💖 Te Amo: <b>{len(love_expr['te_amo'])}</b></p>
-                        <p>🥰 Me Encantas: <b>{len(love_expr['me_encantas'])}</b></p>
-                        <p>💝 Amor: <b>{len(love_expr['amor'])}</b></p>
+                        <p>💘 Te Quiero: <b>{total_tq}</b></p>
+                        <p>💖 Te Amo: <b>{total_ta}</b></p>
+                        <p>🥰 Me Encantas: <b>{total_me}</b></p>
+                        <p>💝 Amor: <b>{total_amor}</b></p>
                     </div>
                     """, unsafe_allow_html=True)
 
             # Mostrar ejemplos recientes
-            with st.expander("📋 Ver ejemplos recientes de 'Te Quiero' y 'Te Amo'"):
+            with st.expander("📋 Ver ejemplos recientes de 'Te Quiero', 'Te Amo' y variantes"):
                 col1, col2 = st.columns(2)
 
                 with col1:
                     st.subheader("💘 Últimos 'Te Quiero'")
-                    for item in love_expr['te_quiero'][-5:]:
+                    combined_tq = love_expr['te_quiero'] + love_expr['te_quiero_variantes']
+                    for item in combined_tq[-5:]:
+                        variant_label = f" *(variante: {item.get('variant_detected', '')})*" if item.get('type') == 'variant' else ""
                         st.markdown(f"""
                         <div class="love-quote">
                             <p style="margin: 0; font-weight: 600; color: #FF6B6B;">
@@ -987,10 +1065,13 @@ if uploaded_file:
                             <p style="margin: 8px 0 0 0;">{item['message']}</p>
                         </div>
                         """, unsafe_allow_html=True)
+                        if item.get('type') == 'variant':
+                            st.caption(f"📌 Variante detectada: *{item.get('variant_detected', '')}*")
 
                 with col2:
                     st.subheader("💖 Últimos 'Te Amo'")
-                    for item in love_expr['te_amo'][-5:]:
+                    combined_ta = love_expr['te_amo'] + love_expr['te_amo_variantes']
+                    for item in combined_ta[-5:]:
                         st.markdown(f"""
                         <div class="love-quote">
                             <p style="margin: 0; font-weight: 600; color: #FF69B4;">
@@ -999,6 +1080,8 @@ if uploaded_file:
                             <p style="margin: 8px 0 0 0;">{item['message']}</p>
                         </div>
                         """, unsafe_allow_html=True)
+                        if item.get('type') == 'variant':
+                            st.caption(f"📌 Variante detectada: *{item.get('variant_detected', '')}*")
 
             # ==================== PALABRA DEL DÍA ====================
             st.divider()
@@ -1181,7 +1264,7 @@ if uploaded_file:
             col1, col2, col3, col4 = st.columns(4)
 
             with col1:
-                prom_amor = len(love_expr['te_quiero']) + len(love_expr['te_amo']) + len(love_expr['me_encantas'])
+                prom_amor = total_tq + total_ta + total_me
                 st.markdown(f"""
                 <div class="metric-card">
                     <div style="font-size: 32px;">💞</div>
