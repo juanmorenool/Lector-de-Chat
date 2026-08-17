@@ -239,11 +239,11 @@ def parse_whatsapp_chat(text):
 
     return pd.DataFrame(messages)
 
-def is_valid_love_expression(msg_lower, base_phrase, intensifiers):
+def is_valid_love_expression(msg_lower, base_phrase, allowed_next_words):
     """
     Verifica si una expresión de amor es válida.
     base_phrase: 'te quiero' o 'te amo'
-    intensifiers: lista de palabras permitidas después de la frase base
+    allowed_next_words: lista de palabras permitidas después de la frase base
     """
     if base_phrase not in msg_lower:
         return False
@@ -274,8 +274,8 @@ def is_valid_love_expression(msg_lower, base_phrase, intensifiers):
         trailing_text = rest_clean[len(words_after[0]):].strip()
         trailing_only_symbols = re.sub(rf'[\s\.,;:!?\-¡¿{emoji_chars}]', '', trailing_text)
 
-        # Si la siguiente palabra es un intensificador y no hay más palabras reales → válido
-        if next_word in intensifiers and not trailing_only_symbols:
+        # Si la siguiente palabra está permitida y no hay más palabras reales → válido
+        if next_word in allowed_next_words and not trailing_only_symbols:
             return True
 
     return False
@@ -284,14 +284,16 @@ def is_valid_love_expression(msg_lower, base_phrase, intensifiers):
 def find_love_expressions(df):
     """Encuentra expresiones de amor válidas"""
 
-    # Intensificadores permitidos para "te quiero" (estricto)
-    tq_intensifiers = [
-        'mucho', 'muchisimo', 'muchísimo', 'demasiado', 'demasiaado', 'demasiadoo'
+    # Palabras permitidas para "te quiero" (intensificadores + variantes solicitadas)
+    tq_allowed_words = [
+        'mucho', 'muchisimo', 'muchísimo', 'demasiado', 'demasiaado', 'demasiadoo',
+        'puto', 'putos', 'puta', 'putas', 'putito', 'putitos', 'putita', 'putitas'
     ]
 
-    # Intensificadores permitidos para "te amo" (estricto)
-    ta_intensifiers = [
-        'mucho', 'muchisimo', 'muchísimo', 'demasiado', 'demasiaado', 'demasiadoo'
+    # Palabras permitidas para "te amo" (intensificadores + variantes solicitadas)
+    ta_allowed_words = [
+        'mucho', 'muchisimo', 'muchísimo', 'demasiado', 'demasiaado', 'demasiadoo',
+        'puto', 'putos', 'puta', 'putas', 'putito', 'putitos', 'putita', 'putitas'
     ]
 
     results = {
@@ -306,7 +308,7 @@ def find_love_expressions(df):
         msg_lower = msg.lower()
 
         # Te quiero (solo frases válidas, no "te quiero besar")
-        if is_valid_love_expression(msg_lower, 'te quiero', tq_intensifiers):
+        if is_valid_love_expression(msg_lower, 'te quiero', tq_allowed_words):
             results['te_quiero'].append({
                 'datetime': row['datetime'],
                 'date': row['date'],
@@ -317,7 +319,7 @@ def find_love_expressions(df):
             })
 
         # Te amo (solo frases válidas)
-        if is_valid_love_expression(msg_lower, 'te amo', ta_intensifiers):
+        if is_valid_love_expression(msg_lower, 'te amo', ta_allowed_words):
             results['te_amo'].append({
                 'datetime': row['datetime'],
                 'date': row['date'],

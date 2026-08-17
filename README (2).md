@@ -57,6 +57,7 @@ streamlit run whatsapp_analyzer.py
 ### Expresiones de Amor
 - ✅ "Te quiero" (y variantes: te quieroo, te quier, etc.)
 - ✅ "Te amo" (y variantes)
+- ✅ "Te quiero/Te amo" seguidos de "puto/puta" y similares
 - ✅ "Me encantas" (y variantes)
 - ✅ "Amor" (menciones generales)
 
